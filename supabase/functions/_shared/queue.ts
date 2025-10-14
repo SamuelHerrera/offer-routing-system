@@ -1,5 +1,6 @@
+import { retry, type RetryOptions } from "jsr:@std/async";
 import { getServiceClient } from "../_shared/db.ts";
-import { CONFIG } from "../_shared/env.ts";
+import { getEnv } from "./env.ts";
 
 export type QueueMessage<T = unknown> = {
   msg_id: number;
@@ -9,30 +10,60 @@ export type QueueMessage<T = unknown> = {
   message: T;
 };
 
-export async function enqueue(queue: string, body: unknown): Promise<number> {
-  const supabase = getServiceClient();
-  const { data, error } = await supabase
-    .rpc("enqueue_message", { queue_name: queue, body });
-  if (error) throw error;
-  return data as number;
-}
+const options: RetryOptions = {
+  maxAttempts: parseInt(getEnv("QUEUE_MAX_RETRIES") ?? "3", 10),
+  minTimeout: parseInt(getEnv("QUEUE_MIN_TIMEOUT") ?? "10", 10),
+  multiplier: parseInt(getEnv("QUEUE_MULTIPLIER") ?? "2", 10),
+  jitter: parseInt(getEnv("QUEUE_JITTER") ?? "0", 10),
+};
 
-export async function dequeueBatch<T = unknown>(queue: string): Promise<QueueMessage<T>[]> {
-  const supabase = getServiceClient();
-  const { data, error } = await supabase
-    .rpc("dequeue_batch", {
+export async function enqueue(
+  queue: string,
+  body: unknown,
+  sleepSeconds: number = 0,
+  retryOptions: RetryOptions = options,
+): Promise<void> {
+  await retry(async () => {
+    const supabase = getServiceClient();
+    const result = await supabase.schema("pgmq_public").rpc("send", {
       queue_name: queue,
-      vt_seconds: CONFIG.WORKER_VT_SECONDS,
-      batch_size: CONFIG.WORKER_BATCH_SIZE,
+      message: body,
+      sleep_seconds: sleepSeconds,
     });
-  if (error) throw error;
-  return (data ?? []) as QueueMessage<T>[];
+    if (result.error) throw result.error;
+  }, retryOptions);
 }
 
-export async function deleteMessage(queue: string, msgId: number): Promise<void> {
+export async function dequeueBatch<T = unknown>(
+  queue: string,
+  n: number = 5,
+  sleepSeconds: number = 0,
+  retryOptions: RetryOptions = options,
+): Promise<QueueMessage<T>[]> {
   const supabase = getServiceClient();
-  const { error } = await supabase
-    .rpc("delete_message", { queue_name: queue, msg_id: msgId });
-  if (error) throw error;
+  return await retry(async () => {
+    const result = await supabase.schema("pgmq_public")
+      .rpc("read", {
+        queue_name: queue,
+        sleep_seconds: sleepSeconds,
+        n: n,
+      });
+    if (result.error) throw result.error;
+    return (result.data ?? []) as QueueMessage<T>[];
+  }, retryOptions);
 }
 
+export async function deleteMessage(
+  queue: string,
+  msgId: number,
+  retryOptions: RetryOptions = options,
+): Promise<void> {
+  const supabase = getServiceClient();
+  await retry(async () => {
+    const result = await supabase.schema("pgmq_public").rpc("delete", {
+      queue_name: queue,
+      msg_id: msgId,
+    });
+    if (result.error) throw result.error;
+  }, retryOptions);
+}

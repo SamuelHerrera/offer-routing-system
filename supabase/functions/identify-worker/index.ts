@@ -1,60 +1,87 @@
-import { dequeueBatch, deleteMessage, enqueue } from "../_shared/queue.ts";
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import type { SubmissionMessage } from "../_types/SubmissionMessage.ts";
+import { deleteMessage, dequeueBatch, enqueue } from "../_shared/queue.ts";
 import { getServiceClient } from "../_shared/db.ts";
-import { CONFIG } from "../_shared/env.ts";
+import { retry } from "jsr:@std/async/retry";
 
-type SubmissionMessage = {
-  email?: string | null;
-  full_name?: string | null;
-  phone?: string | null;
-  payload?: Record<string, unknown>;
-};
+EdgeRuntime.waitUntil(process());
+Deno.serve(() => {
+  return new Response(JSON.stringify({ message: "ok" }));
+});
+addEventListener("beforeunload", (ev) => {
+  console.log("Function will be shutdown due to", ev.detail);
+});
 
-function atLeastTwoTruthy(values: (string | null | undefined)[]): boolean {
-  return values.filter((v) => !!(v && String(v).trim())).length >= 2;
+async function process() {
+  const batch = await dequeueBatch<SubmissionMessage>("submission_queue");
+  for (const item of batch) {
+    try {
+      const { personId, aliasId } = await retry(
+        () => identifyLead(item.message),
+        {
+          maxAttempts: 3,
+          minTimeout: 10,
+          multiplier: 2,
+          jitter: 0,
+        },
+      );
+      await enqueue("routing_queue", {
+        ...item.message,
+        person_id: personId,
+        alias_id: aliasId,
+      });
+      await deleteMessage("submission_queue", item.msg_id);
+    } catch (e) {
+      await enqueue("submission_dlq", {
+        error: (e as Error).message,
+        message: item.message,
+      }).catch((e) => {
+        // todo: send to sentry
+        console.error(e);
+      });
+      await deleteMessage("submission_queue", item.msg_id).catch((e) => {
+        // todo: send to sentry
+        console.error(e);
+      });
+    }
+  }
 }
 
 async function identifyLead(msg: SubmissionMessage) {
   const supabase = getServiceClient();
   const email = (msg.email ?? undefined)?.toLowerCase();
   const phone = msg.phone ?? undefined;
-  const fullName = msg.full_name ?? undefined;
+  const fullName = (msg.full_name ?? undefined)?.toLowerCase();
 
   if (!email && !phone && !fullName) {
     throw new Error("No identifiers provided");
   }
 
-  // Find main record by at least two matching properties
-  const candidates: string[] = [];
-  if (email) {
-    const { data } = await supabase
-      .from("lead_identities")
-      .select("id")
-      .ilike("email", email)
-      .limit(10);
-    (data ?? []).forEach((r: any) => candidates.push(r.id));
-  }
-  if (phone) {
-    const { data } = await supabase
-      .from("lead_identities")
-      .select("id")
-      .eq("phone", phone)
-      .limit(10);
-    (data ?? []).forEach((r: any) => candidates.push(r.id));
-  }
-  if (fullName) {
-    const { data } = await supabase
-      .from("lead_identities")
-      .select("id")
-      .eq("full_name", fullName)
-      .limit(10);
-    (data ?? []).forEach((r: any) => candidates.push(r.id));
-  }
+  const orFilters = [
+    email ? `email.eq.${email}` : "",
+    phone ? `phone.eq.${phone}` : "",
+    name ? `name.eq.${name}` : "",
+  ].filter(Boolean).join(",");
+
+  const { data, error } = await supabase
+    .from("lead_identities")
+    .select("id")
+    .or(orFilters)
+    .limit(10);
+
+  if (error) throw error;
+
+  const candidates = (data ?? []).map((r) => r.id);
 
   let personId: string | null = null;
   let aliasId: string | null = null;
 
   // Try to find a record with two-of-three match by querying combinations
-  if (atLeastTwoTruthy([email ?? null, phone ?? null, fullName ?? null])) {
+  if (
+    [email ?? null, phone ?? null, fullName ?? null].filter((v) =>
+      !!(v && String(v).trim())
+    ).length >= 2
+  ) {
     const { data } = await supabase.rpc("find_two_of_three_match", {
       p_email: email ?? null,
       p_phone: phone ?? null,
@@ -81,8 +108,14 @@ async function identifyLead(msg: SubmissionMessage) {
       .select("email, phone, full_name")
       .eq("id", personId)
       .single();
-    const differs = (prop: string | undefined | null, got: string | undefined) => !!(got && prop && got !== prop);
-    if (differs(existing?.email, email) || differs(existing?.phone, phone) || differs(existing?.full_name, fullName)) {
+    const differs = (
+      prop: string | undefined | null,
+      got: string | undefined,
+    ) => !!(got && prop && got !== prop);
+    if (
+      differs(existing?.email, email) || differs(existing?.phone, phone) ||
+      differs(existing?.full_name, fullName)
+    ) {
       const { data, error } = await supabase
         .from("lead_identities")
         .insert({ email, phone, full_name: fullName, alias_of: personId })
@@ -95,33 +128,3 @@ async function identifyLead(msg: SubmissionMessage) {
 
   return { personId: personId!, aliasId };
 }
-
-async function processOnce() {
-  const batch = await dequeueBatch<SubmissionMessage>("submission_queue");
-  for (const item of batch) {
-    let success = false;
-    let attempts = 0;
-    while (!success && attempts < CONFIG.IDENTIFY_MAX_RETRIES) {
-      attempts++;
-      try {
-        const { personId, aliasId } = await identifyLead(item.message);
-        await enqueue("routing_queue", {
-          person_id: personId,
-          alias_id: aliasId,
-          payload: item.message.payload ?? {},
-        });
-        await deleteMessage("submission_queue", item.msg_id);
-        success = true;
-      } catch (e) {
-        if (attempts >= CONFIG.IDENTIFY_MAX_RETRIES) {
-          await enqueue("submission_dlq", { error: (e as Error).message, message: item.message });
-          await deleteMessage("submission_queue", item.msg_id);
-        }
-      }
-    }
-  }
-}
-
-// one-shot execution for cron/queue triggers
-await processOnce();
-
