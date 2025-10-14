@@ -47,7 +47,7 @@ Project to handle multiple lead-generation websites that send user submissions a
 - Handler + Dedupe (Function):
     - Reads from route_name/PartnerX Queue.
     - Uses a custom dedupe function for the Partner X (Loaded at startup from Table)
-        - It will match for duplicates depending on a custom key that identifies the record 
+        - It returns a custom string key that identifies the record used to match the table for duplicates
             - If a duplicate is found it returns duplicate response
         - If its not a duplicate then we return valid response
     - When its a duplicate we log it to sentry and just mark the record as completed (delete) in Routing Queue.
@@ -78,6 +78,7 @@ Project to handle multiple lead-generation websites that send user submissions a
 - Queue metrics (Function):
     - Reads metrics using PGMQ.
     - Emits metrics to Sentry.
+    
 ## Data stores
 - Rules (datastore): Authoritative rule definitions.
 - Partner Functions and configurations (datastore): Stores dedupe and call functions along with retry, threshold and client configurations
@@ -89,3 +90,17 @@ Project to handle multiple lead-generation websites that send user submissions a
 ## External services and labels
 - PartnerX API: Downstream partner endpoint.
 - Sentry (Logs + Dashboard): Centralized logging/monitoring.
+
+## Unit  tests
+
+- Identify lead
+- Router using decision tree
+- Rule Compiler to build a valid and correct desicion tree
+
+## Integration tests
+
+- a happy path flow from start to calling partner x API
+- a duplicate lead flow
+- a non duplicate lead flow but with an alias
+- a API limit reached flow
+- Per partner custom implementation test for duplicate leads
