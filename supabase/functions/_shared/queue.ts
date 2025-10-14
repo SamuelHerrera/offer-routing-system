@@ -67,3 +67,10 @@ export async function deleteMessage(
     if (result.error) throw result.error;
   }, retryOptions);
 }
+
+export async function metricsAll(): Promise<unknown> {
+  const supabase = getServiceClient();
+  const result = await supabase.schema("pgmq_public").rpc("metrics_all");
+  if (result.error) throw result.error;
+  return result.data;
+}

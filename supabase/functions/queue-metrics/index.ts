@@ -1,10 +1,16 @@
-import { serve } from "std/http/server";
-import { getServiceClient } from "../_shared/db.ts";
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { metricsAll } from "../_shared/queue.ts";
 
-serve(async (_req: Request) => {
-  const supabase = getServiceClient();
-  const { data, error } = await supabase.rpc("queue_metrics");
-  if (error) return new Response(JSON.stringify({ error: error.message }), { status: 400 });
-  return new Response(JSON.stringify(data));
+EdgeRuntime.waitUntil(process());
+Deno.serve(() => {
+  return new Response(JSON.stringify({ message: "ok" }));
+});
+addEventListener("beforeunload", (ev) => {
+  console.log("Function will be shutdown due to", ev.detail);
 });
 
+async function process() {
+  const metrics = await metricsAll();
+  console.log(metrics);
+  // todo: send to sentry
+}

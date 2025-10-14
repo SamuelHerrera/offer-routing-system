@@ -1,47 +1,90 @@
-import { serve } from "std/http/server";
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import type { RulePayload } from "../_types/RulePayload.ts";
 import { getServiceClient } from "../_shared/db.ts";
 import { enqueue } from "../_shared/queue.ts";
+import { buildDecisionTree } from "../_shared/rules.ts";
 
-function authorize(req: Request) {
-  const adminToken = Deno.env.get("ADMIN_TOKEN");
-  const header = req.headers.get("authorization") || req.headers.get("Authorization");
-  if (!adminToken) return false;
-  return header === `Bearer ${adminToken}`;
-}
-
-type RulePayload = {
-  name: string;
-  priority: number;
-  predicate_json: unknown;
-  route_name: string;
-  enabled?: boolean;
+const headers = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey",
+  "Access-Control-Allow-Methods": "POST, GET, OPTIONS, PUT, DELETE",
+  "Content-Type": "application/json",
 };
 
-serve(async (req) => {
-  if (!authorize(req)) return new Response("Unauthorized", { status: 401 });
-  const supabase = getServiceClient();
-  if (req.method === "POST") {
-    const rules = await req.json() as RulePayload | RulePayload[];
-    const list = Array.isArray(rules) ? rules : [rules];
-    for (const r of list) {
-      const { error } = await supabase
-        .rpc("upsert_rule", {
-          p_name: r.name,
-          p_priority: r.priority,
-          p_predicate: r.predicate_json as object,
-          p_route: r.route_name,
-          p_enabled: r.enabled ?? true,
-        });
-      if (error) return new Response(JSON.stringify({ error: error.message }), { status: 400 });
+Deno.serve(async (req) => {
+  try {
+    const { method } = req;
+    const body = await req.json();
+    if (method === "OPTIONS") {
+      return new Response("ok", { headers });
+    } else if (method === "POST") {
+      return await handleBuildDecisionTree(body);
+    } else if (method === "PATCH") {
+      return await handleUpsert(body);
+    } else if (method === "GET") {
+      return await handleGet();
+    } else {
+      return new Response(JSON.stringify({ error: "Invalid method" }), {
+        headers,
+        status: 400,
+      });
     }
-    await enqueue("compile_queue", { reason: "rules_updated" });
-    return new Response(JSON.stringify({ status: "ok", updated: list.length }));
+  } catch (e) {
+    return new Response(
+      JSON.stringify({ error: (e as Error).message }),
+      {
+        headers,
+        status: 400,
+      },
+    );
   }
-  if (req.method === "GET") {
-    const { data, error } = await supabase.from("rules").select("*").order("priority");
-    if (error) return new Response(JSON.stringify({ error: error.message }), { status: 400 });
-    return new Response(JSON.stringify(data));
-  }
-  return new Response("Method Not Allowed", { status: 405 });
 });
 
+async function handleUpsert(body: Record<string, unknown>) {
+  const supabase = getServiceClient();
+  const { data, error } = await supabase
+    .from("rules")
+    .insert(body)
+    .select("id")
+    .single();
+  if (error) {
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 400,
+      headers,
+    });
+  }
+  await enqueue("compile_queue", { created_at: new Date().toISOString() });
+  return new Response(
+    JSON.stringify({ id: data?.id }),
+    {
+      headers,
+      status: 200,
+    },
+  );
+}
+
+async function handleGet() {
+  const supabase = getServiceClient();
+  const { data, error } = await supabase
+    .from("rules")
+    .select("*");
+  if (error) {
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 400,
+      headers,
+    });
+  }
+  return new Response(JSON.stringify({ data }), {
+    headers,
+    status: 200,
+  });
+}
+
+async function handleBuildDecisionTree(body: Record<string, unknown>) {
+  const rules = (body.rules ?? []) as RulePayload[];
+  const tree = await buildDecisionTree(rules);
+  return new Response(JSON.stringify({ tree }), {
+    headers,
+    status: 200,
+  });
+}

@@ -1,56 +1,54 @@
-import { dequeueBatch, deleteMessage, enqueue } from "../_shared/queue.ts";
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { deleteMessage, dequeueBatch, enqueue } from "../_shared/queue.ts";
 import { getServiceClient } from "../_shared/db.ts";
-import { CONFIG } from "../_shared/env.ts";
+import { RoutingMessage } from "../_types/RoutingMessage.ts";
 
-type RoutingMessage = {
-  person_id: string;
-  alias_id?: string | null;
-  payload: Record<string, unknown>;
-};
+EdgeRuntime.waitUntil(process());
+Deno.serve(() => {
+  return new Response(JSON.stringify({ message: "ok" }));
+});
+addEventListener("beforeunload", (ev) => {
+  console.log("Function will be shutdown due to", ev.detail);
+});
 
-async function loadDecisionTree(): Promise<(msg: RoutingMessage) => { route: string }> {
-  const supabase = getServiceClient();
-  const { data, error } = await supabase
-    .from("decision_trees")
-    .select("code")
-    .eq("current", true)
-    .single();
-  if (error || !data) {
-    // default: route to partnerx
-    return () => ({ route: "partnerx" });
-  }
-  const src = data.code as string;
-  // code must export default function (msg) { return { route: string } }
-  const fn = new Function("msg", `${src}; return await (typeof defaultExport === 'function' ? defaultExport(msg) : defaultExport(msg));`);
-  // wrap to provide defaultExport binding
-  return   (msg: RoutingMessage) => {
-   return { route: "partnerx" };
-  };
-}
-
-async function processOnce() {
+async function process() {
   const decide = await loadDecisionTree();
   const batch = await dequeueBatch<RoutingMessage>("routing_queue");
   for (const item of batch) {
-    let success = false;
-    let attempts = 0;
-    while (!success && attempts < CONFIG.ROUTING_MAX_RETRIES) {
-      attempts++;
-      try {
-        const { route } = await decide(item.message);
-        const queueName = route === "partnerx" ? "route_partnerx_queue" : `route_${route}_queue`;
-        await enqueue(queueName, item.message);
-        await deleteMessage("routing_queue", item.msg_id);
-        success = true;
-      } catch (_e) {
-        if (attempts >= CONFIG.ROUTING_MAX_RETRIES) {
-          await enqueue("routing_dlq", { message: item.message });
-          await deleteMessage("routing_queue", item.msg_id);
-        }
-      }
+    try {
+      const { route } = decide(item.message);
+      await enqueue(route, item.message);
+      await deleteMessage("routing_queue", item.msg_id);
+    } catch (_e) {
+      await enqueue("routing_dlq", {
+        ...item.message,
+        error: (_e as Error).message,
+      }).catch((e) => {
+        // todo: send to sentry
+        console.error(e);
+      });
+      await deleteMessage("routing_queue", item.msg_id).catch((e) => {
+        // todo: send to sentry
+        console.error(e);
+      });
     }
   }
 }
 
-await processOnce();
-
+async function loadDecisionTree(): Promise<
+  (msg: RoutingMessage) => { route: string }
+> {
+  const supabase = getServiceClient();
+  const { data, error } = await supabase
+    .from("dynamic_functions")
+    .select("code")
+    .eq("name", "router_function")
+    .single();
+  if (error || !data?.code) {
+    throw new Error("Failed to load router function");
+  }
+  // code must export default function (msg) { return { route: string } }
+  return new Function("msg", data.code as string) as (
+    msg: RoutingMessage,
+  ) => { route: string };
+}

@@ -23,7 +23,7 @@ create table if not exists public.rules (
 
 create table if not exists public.dynamic_functions (
   id uuid primary key default gen_random_uuid(),
-  name text not null,
+  name text not null unique,
   code text not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -83,9 +83,6 @@ create policy "read_dynamic_functions" on public.dynamic_functions for select us
 
 alter table public.dealer_configurations enable row level security;
 create policy "read_dealer_configurations" on public.dealer_configurations for select using (true);
-
-alter table public.decision_trees enable row level security;
-create policy "read_decision_trees" on public.decision_trees for select using (true);
 
 alter table public.lead_identities enable row level security;
 create policy "read_lead_identities" on public.lead_identities for select using (true);

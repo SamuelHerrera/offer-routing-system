@@ -1,41 +1,46 @@
-import { dequeueBatch, deleteMessage } from "../_shared/queue.ts";
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { deleteMessage, dequeueBatch } from "../_shared/queue.ts";
 import { getServiceClient } from "../_shared/db.ts";
+import {
+  buildDecisionTree,
+  generateFunctionFromTree,
+} from "../_shared/rules.ts";
 
-type CompileTrigger = { reason: string };
+EdgeRuntime.waitUntil(compile());
+Deno.serve(() => {
+  return new Response(JSON.stringify({ message: "ok" }));
+});
+addEventListener("beforeunload", (ev) => {
+  console.log("Function will be shutdown due to", ev.detail);
+});
 
-function generateDecisionFunction(rules: Array<{ predicate_json: any; route_name: string }>): string {
-  // naive ordered evaluation: first matching rule wins
-  // export default async function defaultExport(msg) { ... }
-  const cases = rules.map((r, i) => {
-    const pred = JSON.stringify(r.predicate_json);
-    return `if (evaluatePredicate(msg, ${pred})) return { route: ${JSON.stringify(r.route_name)} };`;
-  }).join("\n");
-
-  const helpers = `function evaluatePredicate(msg, pred){ if(pred.always) return true; if(pred.email && msg.payload && msg.payload.email){ if(pred.email.equals) return String(msg.payload.email).toLowerCase() === String(pred.email.equals).toLowerCase(); } return false; }`;
-
-  const code = `${helpers}
-export default async function defaultExport(msg){
-  ${cases}
-  return { route: 'partnerx' };
-}`;
-  return code;
-}
-
-async function compileOnce() {
-  const batch = await dequeueBatch<CompileTrigger>("compile_queue");
+async function compile() {
+  const batch = await dequeueBatch<{
+    created_at: string;
+  }>("compile_queue");
   if (!batch.length) return;
   const supabase = getServiceClient();
+
   const { data: rules, error } = await supabase
-    .from("rules").select("predicate_json, route_name").eq("enabled", true).order("priority", { ascending: true });
+    .from("rules").select("name, priority, predicate_json, route_name, enabled")
+    .eq("enabled", true)
+    .order("priority", { ascending: true });
+
   if (error) throw error;
-  const code = generateDecisionFunction(rules ?? []);
-  // mark previous as not current
-  await supabase.from("decision_trees").update({ current: false }).eq("current", true);
-  await supabase.from("decision_trees").insert({ code, current: true, version: Date.now() });
+  if (!rules || !rules.length) {
+    throw new Error("No rules to compile");
+  }
+
+  const tree = buildDecisionTree(rules);
+  const code = generateFunctionFromTree(tree);
+
+  await supabase.from("dynamic_functions").upsert({
+    name: "router_function",
+    code,
+  }, {
+    onConflict: "name",
+  });
   for (const item of batch) {
     await deleteMessage("compile_queue", item.msg_id);
   }
 }
-
-await compileOnce();
-
