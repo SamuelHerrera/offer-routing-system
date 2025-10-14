@@ -1,0 +1,19 @@
+{
+  "lock": false,
+  "tasks": {
+    "dev": "supabase functions serve --no-verify-jwt",
+    "test": "deno test -A",
+    "fmt": "deno fmt",
+    "lint": "deno lint"
+  },
+  "nodeModulesDir": "auto",
+  "compilerOptions": {
+    "strict": true
+  },
+  "imports": {
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.45.4",
+    "std/http/server": "https://deno.land/std@0.224.0/http/server.ts",
+    "supabase": "npm:supabase@^2.51.0"
+  }
+}
+
