@@ -65,6 +65,14 @@ create table if not exists public.circuit_breakers (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.worker_states (
+  name text primary key,
+  status text check (status in ('starting','busy','idle','dead', 'disabled')) default 'disabled',
+  last_seen timestamptz default now(),
+  started_at timestamptz default now(),
+  stopped_at timestamptz
+);
+
 create index if not exists idx_dynamic_function_name on public.dynamic_functions(name);
 create index if not exists idx_lead_ident_email on public.lead_identities(lower(email));
 create index if not exists idx_lead_ident_phone on public.lead_identities(phone);

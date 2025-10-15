@@ -5,14 +5,9 @@ import {
   buildDecisionTree,
   generateFunctionFromTree,
 } from "../_shared/rules.ts";
+import { wrapWorker } from "../_shared/worker.ts";
 
-Deno.serve(() => {
-  EdgeRuntime.waitUntil(compile());
-  return new Response(JSON.stringify({ message: "ok" }));
-});
-addEventListener("beforeunload", (ev) => {
-  console.log("Function will be shutdown due to", ev.detail);
-});
+wrapWorker("rule-compiler", compile);
 
 async function compile() {
   const batch = await dequeueBatch<{

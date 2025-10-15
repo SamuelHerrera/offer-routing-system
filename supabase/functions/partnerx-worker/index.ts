@@ -4,20 +4,18 @@ import { deleteMessage, dequeueBatch, enqueue } from "../_shared/queue.ts";
 import { getServiceClient } from "../_shared/db.ts";
 import { RoutingMessage } from "../_types/RoutingMessage.ts";
 import { retry } from "jsr:@std/async/retry";
+import { wrapWorker } from "../_shared/worker.ts";
 
-Deno.serve(async (req) => {
-  const { partner_name } = await req.json();
-  EdgeRuntime.waitUntil(process(partner_name));
-  return new Response(JSON.stringify({ message: "ok" }));
-});
-addEventListener("beforeunload", (ev) => {
-  console.log("Function will be shutdown due to", ev.detail);
-});
+wrapWorker("dealer-worker", process);
 
-async function process(partnerName: string) {
-  const queueName = `${partnerName}_queue`;
-  const dlqName = `${partnerName}_dlq`;
-  const { dedupe, handler } = await loadPartnerArtifacts(partnerName);
+async function process(options: Record<string, unknown> | undefined) {
+  const dealer_name = options?.dealer_name as string;
+  if (!dealer_name) {
+    throw new Error("dealer_name is required");
+  }
+  const queueName = `${dealer_name}_queue`;
+  const dlqName = `${dealer_name}_dlq`;
+  const { dedupe, handler } = await loadPartnerArtifacts(dealer_name);
   const batch = await dequeueBatch<PartnerMessage>(queueName);
   const supabase = getServiceClient();
   for (const item of batch) {
@@ -53,7 +51,7 @@ async function process(partnerName: string) {
         .insert({
           person_id: item.message.person_id,
           alias_id: item.message.alias_id ?? null,
-          dealer_name: partnerName,
+          dealer_name,
           dedupe_key: dedupeKey,
           status: "pending",
           attempts: 0,

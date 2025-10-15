@@ -2,14 +2,9 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { deleteMessage, dequeueBatch, enqueue } from "../_shared/queue.ts";
 import { getServiceClient } from "../_shared/db.ts";
 import { RoutingMessage } from "../_types/RoutingMessage.ts";
+import { wrapWorker } from "../_shared/worker.ts";
 
-Deno.serve(() => {
-  EdgeRuntime.waitUntil(process());
-  return new Response(JSON.stringify({ message: "ok" }));
-});
-addEventListener("beforeunload", (ev) => {
-  console.log("Function will be shutdown due to", ev.detail);
-});
+wrapWorker("router-worker", process);
 
 async function process() {
   const decide = await loadDecisionTree();
