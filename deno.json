@@ -1,10 +1,13 @@
 {
   "lock": false,
   "tasks": {
-    "sb:start": "npx supabase start",
-    "sb:stop": "npx supabase stop",
-    "sb:local": "npx supabase functions serve --no-verify-jwt",
-    "sb:deploy": "npx supabase functions deploy",
+    "login": "npx supabase login",
+    "start": "npx supabase start",
+    "stop": "npx supabase stop",
+    "local": "npx supabase functions serve --no-verify-jwt",
+    "deploy": "npx supabase functions deploy",
+    "link": "npx supabase link",
+    "db:push": "npx supabase db push",
     "test": "deno test -A",
     "fmt": "deno fmt",
     "lint": "deno lint"
