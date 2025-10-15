@@ -84,8 +84,7 @@ Project to handle multiple lead-generation websites that send user submissions a
     
 ## Data stores
 - Rules (datastore): Authoritative rule definitions.
-- Dealer Functions (datastore): Stores dedupe and call functions
-- Decision Tree (datastore): Compiled/optimized routing structure.
+- Dynamic Functions (datastore): Stores deduplication, handlers and route functions
 - Lead Identity (datastore): Lead identity graph and alias.
 - Leads (datastore): Persisted submitted leads.
 - Circuit breaker (datastore): Availability/failure state for dealer integrations.
