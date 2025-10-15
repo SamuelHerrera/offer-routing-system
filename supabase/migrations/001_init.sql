@@ -51,10 +51,8 @@ create table if not exists public.leads (
   alias_id uuid references public.lead_identities(id) on delete set null,
   dealer_name text not null,
   status text not null default 'pending',
-  request_date timestamptz not null default now(),
-  request jsonb,
-  response jsonb,
   attempts int not null default 0,
+  form_data jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -72,6 +70,7 @@ create index if not exists idx_lead_ident_email on public.lead_identities(lower(
 create index if not exists idx_lead_ident_phone on public.lead_identities(phone);
 create index if not exists idx_lead_ident_alias on public.lead_identities(alias_of);
 create index if not exists idx_leads_person on public.leads(person_id);
+create index if not exists idx_leads_person on public.leads(dedupe_key);
 create index if not exists idx_leads_dealer_dedupe on public.leads(dealer_name, dedupe_key);
 
 -- Basic RLS

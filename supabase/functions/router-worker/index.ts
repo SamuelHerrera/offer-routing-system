@@ -43,7 +43,7 @@ async function loadDecisionTree(): Promise<
     .from("dynamic_functions")
     .select("code")
     .eq("name", "router_function")
-    .single();
+    .maybeSingle();
   if (error || !data?.code) {
     throw new Error("Failed to load router function");
   }
