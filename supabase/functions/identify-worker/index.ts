@@ -3,14 +3,9 @@ import type { SubmissionMessage } from "../_types/SubmissionMessage.ts";
 import { deleteMessage, dequeueBatch, enqueue } from "../_shared/queue.ts";
 import { getServiceClient } from "../_shared/db.ts";
 import { retry } from "jsr:@std/async/retry";
+import { wrapWorker } from "../_shared/worker.ts";
 
-Deno.serve(() => {
-  EdgeRuntime.waitUntil(process());
-  return new Response(JSON.stringify({ message: "ok" }));
-});
-addEventListener("beforeunload", (ev) => {
-  console.log("Function will be shutdown due to", ev.detail);
-});
+wrapWorker("identify-worker", process);
 
 async function process() {
   const batch = await dequeueBatch<SubmissionMessage>("submission_queue");
