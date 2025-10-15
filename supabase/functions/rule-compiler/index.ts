@@ -6,8 +6,8 @@ import {
   generateFunctionFromTree,
 } from "../_shared/rules.ts";
 
-EdgeRuntime.waitUntil(compile());
 Deno.serve(() => {
+  EdgeRuntime.waitUntil(compile());
   return new Response(JSON.stringify({ message: "ok" }));
 });
 addEventListener("beforeunload", (ev) => {

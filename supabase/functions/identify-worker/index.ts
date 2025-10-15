@@ -4,8 +4,8 @@ import { deleteMessage, dequeueBatch, enqueue } from "../_shared/queue.ts";
 import { getServiceClient } from "../_shared/db.ts";
 import { retry } from "jsr:@std/async/retry";
 
-EdgeRuntime.waitUntil(process());
 Deno.serve(() => {
+  EdgeRuntime.waitUntil(process());
   return new Response(JSON.stringify({ message: "ok" }));
 });
 addEventListener("beforeunload", (ev) => {
@@ -52,11 +52,9 @@ async function identifyLead(msg: SubmissionMessage) {
   const email = (msg.email ?? undefined)?.toLowerCase();
   const phone = msg.phone ?? undefined;
   const fullName = (msg.full_name ?? undefined)?.toLowerCase();
-
   if (!email && !phone && !fullName) {
     throw new Error("No identifiers provided");
   }
-
   const { data: candidates, error } = await supabase
     .from("lead_identities")
     .select("id, alias_of, email, phone, full_name")
@@ -103,7 +101,6 @@ async function identifyLead(msg: SubmissionMessage) {
     if (error) throw error;
     person_id = data!.id as string;
   }
-
   return { person_id, alias_id } as {
     person_id: string;
     alias_id?: string | null;

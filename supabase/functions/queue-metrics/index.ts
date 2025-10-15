@@ -1,8 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { metricsAll } from "../_shared/queue.ts";
 
-EdgeRuntime.waitUntil(process());
 Deno.serve(() => {
+  EdgeRuntime.waitUntil(process());
   return new Response(JSON.stringify({ message: "ok" }));
 });
 addEventListener("beforeunload", (ev) => {
