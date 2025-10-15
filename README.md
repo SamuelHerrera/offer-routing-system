@@ -2,6 +2,9 @@
 
 Project to handle multiple lead-generation websites that send user submissions and redirects it to different partner APIs (schools, finance offers, etc.) based on user defined rules.
 
+
+<img width="1696" height="1097" alt="design" src="https://github.com/user-attachments/assets/265faa80-98ac-4e2b-8e2b-2c1ce6f3af8e" />
+
 ## Stack
 
 - Supabase Queues, Database and edge functions
