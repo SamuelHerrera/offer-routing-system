@@ -17,20 +17,20 @@ Project to handle multiple lead-generation websites that send user submissions a
 - Submission DLQueue: Dead-letter for failed submission processing.
 - Routing Queue: Buffers items awaiting routing decisions.
 - Compile Queue: Triggers compilation when rules change.
-- PartnerX Queue: Work queue for Partner X delivery.
-- PartnerX DLQueue: Dead-letter for Partner X delivery failures.
+- Dealer Queue: Work queue for Dealer X delivery.
+- Dealer DLQueue: Dead-letter for Dealer X delivery failures.
 
 ## Core functions/services
 - Identify lead (Function):
     - Reads from Submission Queue and uniquely identify client from lead using email, full name or phone
-    - If two of the tree properties exist then assume its the same person even if the third prop is different
+    - If email or phone already exist then assume its the same person even if the other props are different
     - If person does not exist it will crate it
         - Else if the person exist but the third prop is different I want to persist the prop in a new record and set an 'alias' column (optional otherwise) to point to the origin record (so a person can have as single main record and multiple aliases poining to this one)
         - Else If the data is the same for all properties we continue to the next instruction
     - In all cases we obtain the id of the person and set it to the message, replacing the user info by the id and (optional) the alias used for this operation
     - Lastly, enqueue the updated message to the next step queue and mark it as completed (delete) in Submission Queue.
     - Outputs to: Routing Queue
-    - Implement a retry logic with maximum N intents (Configurable by IDENTIFY_MAX_RETRIES env var with default value of 3)
+    - Implement a retry logic with maximum N intents
     - On failed retry outputs to: Submission DLQueue and mark it as completed (delete) in Submission Queue.
     - Emits metrics to Sentry.
         - Time taken per lead and per batch
@@ -38,15 +38,15 @@ Project to handle multiple lead-generation websites that send user submissions a
 - Router (Function):
     - Reads from Routing Queue.
     - Uses compiled decision Tree which is a js string that its evaluated/loaded once as part of the startup and its used to decide the route to follow depending on the compiled predicates.
-    - Depending on the decision tree result we redirect the message to ***route_name/partnerX*** queue and mark it as completed (delete) in Routing Queue.
-    - Implement a retry logic with maximum N intents (Configurable by ROUTING_MAX_RETRIES env var with default value of 3)
+    - Depending on the decision tree result we redirect the message to ***<dealer>_queue*** queue and mark it as completed (delete) in Routing Queue.
+    - Implement a retry logic with maximum N intents
     - On failed retry outputs to: Routing DLQueue and mark it as completed (delete) in Routing Queue
     - Emits metrics to Sentry.
         - Time taken per route and per batch
         - Errors
 - Handler + Dedupe (Function):
-    - Reads from route_name/PartnerX Queue.
-    - Uses a custom dedupe function for the Partner X (Loaded at startup from Table)
+    - Reads from Dealer Queue.
+    - Uses a custom dedupe function for the Dealer(Loaded at startup from Table)
         - It returns a custom string key that identifies the record used to match the table for duplicates
             - If a duplicate is found it returns duplicate response
         - If its not a duplicate then we return valid response
@@ -60,12 +60,12 @@ Project to handle multiple lead-generation websites that send user submissions a
             - If circuit breaker was open then close the status as its working
             - Emit the response data and status to sentry
         - On error:
-            - Retry logic with maximum N intents (Configurable by a record in partner fn and config table with default value of 3)
+            - Retry logic with maximum N intents (Configurable by a record in dealer fn and config table with default value of 3)
             - We update the record state with the error
             - Emit the response data, status and retry count to sentry
             - On failed retries
-                - Move messages to route_name/PartnerX DLQueue
-                - Mark it as completed (delete) in route_name/PartnerX Queue
+                - Move messages to Dealer DLQueue
+                - Mark it as completed (delete) in Dealer Queue
                 - Open cirtuit breaker and depending on response code set the retry time
     - Emits to Sentry.
         - Time taken per lead and per batch
@@ -81,14 +81,14 @@ Project to handle multiple lead-generation websites that send user submissions a
     
 ## Data stores
 - Rules (datastore): Authoritative rule definitions.
-- Partner Functions and configurations (datastore): Stores dedupe and call functions along with retry, threshold and client configurations
+- Dealer Functions (datastore): Stores dedupe and call functions
 - Decision Tree (datastore): Compiled/optimized routing structure.
 - Lead Identity (datastore): Lead identity graph and alias.
 - Leads (datastore): Persisted submitted leads.
-- Circuit breaker (datastore): Availability/failure state for partner integrations.
+- Circuit breaker (datastore): Availability/failure state for dealer integrations.
 
 ## External services and labels
-- PartnerX API: Downstream partner endpoint.
+- Dealer API: Downstream dealer endpoint.
 - Sentry (Logs + Dashboard): Centralized logging/monitoring.
 
 ## Unit  tests
@@ -99,8 +99,8 @@ Project to handle multiple lead-generation websites that send user submissions a
 
 ## Integration tests
 
-- a happy path flow from start to calling partner x API
+- a happy path flow from start to calling dealer x API
 - a duplicate lead flow
 - a non duplicate lead flow but with an alias
 - a API limit reached flow
-- Per partner custom implementation test for duplicate leads
+- Per dealer custom implementation test for duplicate leads
