@@ -7,7 +7,7 @@ select vault.create_secret('https://<project_id>-ref.supabase.co', 'project_url'
 select vault.create_secret('<anon_key>', 'anon_key');
 ```
 
-## Start supervisor
+## Start supervisor (*Enable cron integration first)
 
 ```
 SELECT cron.schedule(

@@ -67,7 +67,7 @@ create table if not exists public.circuit_breakers (
 
 create table if not exists public.worker_states (
   name text primary key,
-  status text check (status in ('starting','busy','idle','dead', 'disabled')) default 'disabled',
+  status text check (status in ('starting','busy','dead', 'disabled')) default 'disabled',
   last_seen timestamptz default now(),
   started_at timestamptz default now(),
   stopped_at timestamptz

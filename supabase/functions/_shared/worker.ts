@@ -58,7 +58,6 @@ async function run(
     });
     try {
         await handler(body);
-        await upsertState({ status: "idle" });
     } catch (err) {
         console.error(`Worker ${workerName} crashed:`, err);
         await upsertState({
