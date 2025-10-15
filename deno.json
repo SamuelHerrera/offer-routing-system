@@ -1,18 +1,12 @@
 {
   "lock": false,
   "tasks": {
-    "dev": "supabase functions serve --no-verify-jwt",
+    "dev": "npx supabase functions serve --no-verify-jwt",
     "test": "deno test -A",
     "fmt": "deno fmt",
     "lint": "deno lint"
   },
-  "nodeModulesDir": "auto",
   "compilerOptions": {
     "strict": true
-  },
-  "imports": {
-    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.45.4",
-    "supabase": "npm:supabase@^2.51.0"
   }
 }
-
