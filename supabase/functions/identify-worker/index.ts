@@ -4,6 +4,7 @@ import { deleteMessage, dequeueBatch, enqueue } from "../_shared/queue.ts";
 import { getServiceClient } from "../_shared/db.ts";
 import { retry } from "jsr:@std/async/retry";
 import { wrapWorker } from "../_shared/worker.ts";
+import { captureException } from "../_shared/sentry.ts";
 
 wrapWorker("identify-worker", process);
 
@@ -27,15 +28,16 @@ async function process() {
       });
       await deleteMessage("submission_queue", item.msg_id);
     } catch (e) {
+      captureException(e, { stage: "identify-worker", queue: "submission_queue" });
       await enqueue("submission_dlq", {
         ...item.message,
         error: (e as Error).message,
       }).catch((e) => {
-        // todo: send to sentry
+        captureException(e, { stage: "identify-worker", op: "enqueue-dlq" });
         console.error(e);
       });
       await deleteMessage("submission_queue", item.msg_id).catch((e) => {
-        // todo: send to sentry
+        captureException(e, { stage: "identify-worker", op: "delete-msg" });
         console.error(e);
       });
     }

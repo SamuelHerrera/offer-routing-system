@@ -3,6 +3,7 @@ import { deleteMessage, dequeueBatch, enqueue } from "../_shared/queue.ts";
 import { getServiceClient } from "../_shared/db.ts";
 import { RoutingMessage } from "../_types/RoutingMessage.ts";
 import { wrapWorker } from "../_shared/worker.ts";
+import { captureException } from "../_shared/sentry.ts";
 
 wrapWorker("router-worker", process);
 
@@ -19,11 +20,11 @@ async function process() {
         ...item.message,
         error: (_e as Error).message,
       }).catch((e) => {
-        // todo: send to sentry
+        captureException(e, { stage: "router-worker", op: "enqueue-dlq" });
         console.error(e);
       });
       await deleteMessage("routing_queue", item.msg_id).catch((e) => {
-        // todo: send to sentry
+        captureException(e, { stage: "router-worker", op: "delete-msg" });
         console.error(e);
       });
     }

@@ -1,4 +1,5 @@
 import { getServiceClient } from "./db.ts";
+import { captureException, flushSentry, initSentry } from "./sentry.ts";
 
 export function wrapWorker(
     workerName: string,
@@ -6,6 +7,7 @@ export function wrapWorker(
     heartbeatMs = 10_000,
 ) {
     Deno.serve(async (req) => {
+        initSentry({ name: workerName });
         const body = await req.json();
         const dealer_name = body?.dealer_name as string;
         // for dealer-worker, the worker name is the dealer name
@@ -60,11 +62,13 @@ async function run(
         await handler(body);
     } catch (err) {
         console.error(`Worker ${workerName} crashed:`, err);
+        captureException(err, { worker: workerName });
         await upsertState({
             status: "dead",
             stopped_at: new Date().toISOString(),
         });
     } finally {
         clearInterval(heartbeat);
+        await flushSentry();
     }
 }

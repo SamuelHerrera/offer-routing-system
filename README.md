@@ -91,6 +91,17 @@ Project to handle multiple lead-generation websites that send user submissions a
 - Dealer API: Downstream dealer endpoint.
 - Sentry (Logs + Dashboard): Centralized logging/monitoring.
 
+### Sentry configuration
+
+Set the following environment variables for Supabase functions to enable Sentry:
+
+- `SENTRY_DSN`: Your Sentry project DSN (enables SDK when present)
+- `SENTRY_ENV` (optional): Environment name, e.g. `dev`, `staging`, `prod`
+- `SENTRY_RELEASE` (optional): Release identifier
+- `SENTRY_TRACES_SAMPLE_RATE` (optional): Decimal between 0 and 1, default `0`
+
+Workers auto-initialize Sentry via `wrapWorker`. HTTP handlers initialize within each `Deno.serve`.
+
 ## Unit  tests
 
 - Identify lead

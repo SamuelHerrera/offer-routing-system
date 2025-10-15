@@ -3,6 +3,7 @@ import type { RulePayload } from "../_types/RulePayload.ts";
 import { getServiceClient } from "../_shared/db.ts";
 import { enqueue } from "../_shared/queue.ts";
 import { buildDecisionTree } from "../_shared/rules.ts";
+import { initSentry, captureException, flushSentry } from "../_shared/sentry.ts";
 
 const headers = {
   "Access-Control-Allow-Origin": "*",
@@ -12,6 +13,7 @@ const headers = {
 };
 
 Deno.serve(async (req) => {
+  initSentry({ name: "api-rules" });
   try {
     const { method } = req;
     const body = await req.json();
@@ -30,6 +32,7 @@ Deno.serve(async (req) => {
       });
     }
   } catch (e) {
+    captureException(e, { route: "api-rules" });
     return new Response(
       JSON.stringify({ error: (e as Error).message }),
       {
@@ -37,6 +40,9 @@ Deno.serve(async (req) => {
         status: 400,
       },
     );
+  }
+  finally {
+    await flushSentry();
   }
 });
 

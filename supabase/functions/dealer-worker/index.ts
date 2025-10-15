@@ -5,6 +5,7 @@ import { getServiceClient } from "../_shared/db.ts";
 import { RoutingMessage } from "../_types/RoutingMessage.ts";
 import { retry } from "jsr:@std/async/retry";
 import { wrapWorker } from "../_shared/worker.ts";
+import { captureException, captureMessage } from "../_shared/sentry.ts";
 
 wrapWorker("dealer-worker", process);
 
@@ -35,7 +36,10 @@ async function process(options: Record<string, unknown> | undefined) {
       )
     ) {
       await deleteMessage(queueName, item.msg_id);
-      // todo: log to sentry
+      captureMessage("duplicate lead skipped", "info", {
+        dealer_name,
+        dedupe_key: dedupeKey,
+      });
       continue;
     }
     if (record) {
@@ -75,7 +79,7 @@ async function process(options: Record<string, unknown> | undefined) {
       if (res.error) {
         throw new Error(res.error as string);
       }
-      // todo: log to sentry
+      captureMessage("lead delivered", "info", { dealer_name, dedupe_key: dedupeKey });
       await supabase
         .from("leads")
         .update({ status: "completed", updated_at: new Date().toISOString() })
@@ -83,7 +87,7 @@ async function process(options: Record<string, unknown> | undefined) {
       await deleteMessage(queueName, item.msg_id);
     } catch (e) {
       console.error(e);
-      // todo: log to sentry
+      captureException(e, { stage: "dealer-worker", dealer_name, dedupe_key: dedupeKey });
       (await supabase
         .from("leads")
         .update({
@@ -95,18 +99,18 @@ async function process(options: Record<string, unknown> | undefined) {
         .then((res) => {
           if (res.error) throw res.error;
         }) as Promise<{ error?: unknown }>).catch((e) => {
-          // todo: log to sentry
+          captureException(e, { stage: "dealer-worker", op: "update-lead" });
           console.error(e);
         });
       await enqueue(dlqName, {
         message: item.message,
         error: String((e as Error).message),
       }).catch((e) => {
-        // todo: log to sentry
+        captureException(e, { stage: "dealer-worker", op: "enqueue-dlq" });
         console.error(e);
       });
       await deleteMessage(queueName, item.msg_id).catch((e) => {
-        // todo: log to sentry
+        captureException(e, { stage: "dealer-worker", op: "delete-msg" });
         console.error(e);
       });
     }

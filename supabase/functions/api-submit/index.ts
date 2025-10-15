@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import type { SubmissionMessage } from "../_types/SubmissionMessage.ts";
 import { enqueue } from "../_shared/queue.ts";
+import { captureException, initSentry, flushSentry } from "../_shared/sentry.ts";
 const headers = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey",
@@ -8,6 +9,7 @@ const headers = {
   "Content-Type": "application/json",
 };
 Deno.serve(async (req) => {
+  initSentry({ name: "api-submit" });
   const { method } = req;
   if (method === "OPTIONS") {
     return new Response("ok", { headers });
@@ -34,16 +36,21 @@ Deno.serve(async (req) => {
       { headers, status: 200 },
     );
   } catch (e) {
+    captureException(e, { route: "api-submit" });
     await enqueue("submission_dlq", {
       ...message,
       error: (e as Error).message,
     }).catch((e) => {
+      captureException(e, { route: "api-submit", op: "enqueue-dlq" });
       console.error(e);
     });
     return new Response(
       JSON.stringify({ error: message }),
       { headers, status: 400 },
     );
+  }
+  finally {
+    await flushSentry();
   }
 });
 
